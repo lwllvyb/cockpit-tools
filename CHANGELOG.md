@@ -7,6 +7,17 @@ All notable changes to Cockpit Tools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
+## [0.18.0] - 2026-03-22
+
+### Added
+- **Zed account management is now supported end-to-end with official native-app OAuth, JSON import, local current-session import, and real credential apply-back into the official client**: added a dedicated Zed account page, local account storage/indexing, current-session runtime controls, and account apply/restart behavior aligned with the official desktop credential slot.
+- **Zed is now integrated into dashboard summaries, global account transfer bundles, and platform settings**: dashboard cards, transfer export/import, launch-path configuration, auto-refresh cadence, and quota-alert settings now include Zed.
+
+### Changed
+- **Zed quota display now follows the desktop client's actual account API instead of browser billing pages**: the page now focuses on `Edit Predictions` and overdue-invoice status from `/client/users/me`, supports importing the currently signed-in local account, and logs the raw refresh payload for diagnostics.
+- **Zed platform presentation has been tightened for the current rollout**: the app now uses the official Zed application icon, the add-account modal is aligned with the shared `OAuth / Token / Import` structure, and the side-menu entry is hidden while menu maintenance remains paused.
+
+---
 ## [0.17.8] - 2026-03-21
 
 ### Fixed

@@ -1152,6 +1152,13 @@ fn update_app_path_in_config(app: &str, path: &Path) {
                 return;
             }
         }
+        "zed" => {
+            if current.zed_app_path != normalized {
+                current.zed_app_path = normalized;
+            } else {
+                return;
+            }
+        }
         "vscode" => {
             if current.vscode_app_path != normalized {
                 current.vscode_app_path = normalized;
@@ -1212,6 +1219,7 @@ fn resolve_macos_app_root_from_config(app: &str) -> Option<String> {
     let raw = match app {
         "antigravity" => current.antigravity_app_path,
         "codex" => current.codex_app_path,
+        "zed" => current.zed_app_path,
         "vscode" => current.vscode_app_path,
         "codebuddy" => current.codebuddy_app_path,
         "codebuddy_cn" => current.codebuddy_cn_app_path,
@@ -1833,6 +1841,61 @@ fn detect_qoder_exec_path() -> Option<std::path::PathBuf> {
     None
 }
 
+fn detect_zed_exec_path() -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        let candidates = [
+            "/Applications/Zed.app/Contents/MacOS/zed",
+            "/Applications/Zed.app",
+            "/usr/local/bin/zed",
+        ];
+        for candidate in candidates {
+            let path = std::path::PathBuf::from(candidate);
+            if path.exists() {
+                return Some(path);
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+        if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
+            candidates.push(
+                std::path::PathBuf::from(&local_appdata)
+                    .join("Programs")
+                    .join("Zed")
+                    .join("Zed.exe"),
+            );
+        }
+        if let Ok(program_files) = std::env::var("PROGRAMFILES") {
+            candidates.push(
+                std::path::PathBuf::from(program_files)
+                    .join("Zed")
+                    .join("Zed.exe"),
+            );
+        }
+        for candidate in candidates {
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let candidates = ["/usr/bin/zed", "/usr/local/bin/zed", "/opt/zed/zed"];
+        for candidate in candidates {
+            let path = std::path::PathBuf::from(candidate);
+            if path.exists() {
+                return Some(path);
+            }
+        }
+    }
+
+    None
+}
+
 fn detect_trae_exec_path() -> Option<std::path::PathBuf> {
     #[cfg(target_os = "macos")]
     {
@@ -2092,6 +2155,54 @@ fn resolve_qoder_macos_exec_path(path_str: &str) -> Option<std::path::PathBuf> {
 }
 
 #[cfg(target_os = "macos")]
+fn resolve_zed_macos_exec_path(path_str: &str) -> Option<std::path::PathBuf> {
+    let path = std::path::PathBuf::from(path_str);
+    if let Some(app_root) = normalize_macos_app_root(&path) {
+        let app_root_path = std::path::PathBuf::from(&app_root);
+        let macos_dir = app_root_path.join("Contents").join("MacOS");
+
+        for binary_name in ["zed", "Zed"] {
+            let candidate = macos_dir.join(binary_name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+
+        if let Ok(entries) = std::fs::read_dir(&macos_dir) {
+            let mut fallback: Option<std::path::PathBuf> = None;
+            for entry in entries.flatten() {
+                let candidate = entry.path();
+                if !candidate.is_file() {
+                    continue;
+                }
+                let file_name = candidate
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                if file_name.contains("crashpad") || file_name.contains("helper") {
+                    continue;
+                }
+                if file_name == "zed" || file_name.contains("zed") {
+                    return Some(candidate);
+                }
+                if fallback.is_none() {
+                    fallback = Some(candidate);
+                }
+            }
+            if let Some(candidate) = fallback {
+                return Some(candidate);
+            }
+        }
+    }
+
+    if path.is_file() {
+        return Some(path);
+    }
+    None
+}
+
+#[cfg(target_os = "macos")]
 fn resolve_trae_macos_exec_path(path_str: &str) -> Option<std::path::PathBuf> {
     let path = std::path::PathBuf::from(path_str);
     if let Some(app_root) = normalize_macos_app_root(&path) {
@@ -2190,6 +2301,11 @@ fn resolve_workbuddy_macos_exec_path(path_str: &str) -> Option<std::path::PathBu
 #[cfg(not(target_os = "macos"))]
 fn resolve_qoder_macos_exec_path(path_str: &str) -> Option<std::path::PathBuf> {
     resolve_macos_exec_path(path_str, "Qoder")
+}
+
+#[cfg(not(target_os = "macos"))]
+fn resolve_zed_macos_exec_path(path_str: &str) -> Option<std::path::PathBuf> {
+    resolve_macos_exec_path(path_str, "zed")
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -2700,6 +2816,36 @@ fn resolve_qoder_launch_path() -> Result<std::path::PathBuf, String> {
     Err(app_path_missing_error("qoder"))
 }
 
+pub fn ensure_zed_launch_path_configured() -> Result<(), String> {
+    resolve_zed_launch_path().map(|_| ())
+}
+
+pub fn resolve_zed_launch_path() -> Result<std::path::PathBuf, String> {
+    if let Some(custom) = normalize_custom_path(Some(&config::get_user_config().zed_app_path)) {
+        if let Some(exec) = resolve_zed_macos_exec_path(&custom) {
+            return Ok(exec);
+        }
+        return Err(app_path_missing_error("zed"));
+    }
+
+    if let Some(detected) = detect_zed_exec_path() {
+        let detected_str = detected.to_string_lossy();
+        if let Some(exec) = resolve_zed_macos_exec_path(&detected_str) {
+            return Ok(exec);
+        }
+        #[cfg(target_os = "macos")]
+        if detected.is_file() {
+            return Ok(detected);
+        }
+        #[cfg(not(target_os = "macos"))]
+        if detected.exists() {
+            return Ok(detected);
+        }
+    }
+
+    Err(app_path_missing_error("zed"))
+}
+
 fn resolve_trae_launch_path() -> Result<std::path::PathBuf, String> {
     if let Some(custom) = normalize_custom_path(Some(&config::get_user_config().trae_app_path)) {
         if let Some(exec) = resolve_trae_macos_exec_path(&custom) {
@@ -2796,6 +2942,15 @@ pub fn detect_and_save_app_path(app: &str, force: bool) -> Option<String> {
             if let Some(detected) = detect_codex_exec_path() {
                 update_app_path_in_config("codex", &detected);
                 return Some(config::get_user_config().codex_app_path);
+            }
+        }
+        "zed" => {
+            if !force && !current.zed_app_path.trim().is_empty() {
+                return Some(current.zed_app_path);
+            }
+            if let Some(detected) = detect_zed_exec_path() {
+                update_app_path_in_config("zed", &detected);
+                return Some(config::get_user_config().zed_app_path);
             }
         }
         "vscode" => {
@@ -6135,7 +6290,9 @@ fn collect_codex_process_entries_from_powershell() -> Vec<(u32, Option<String>)>
             Err(_) => continue,
         };
         let lower = cmdline.to_lowercase();
-        if !lower.is_empty() && (is_helper_command_line(&lower) || lower.contains("crashpad_handler")) {
+        if !lower.is_empty()
+            && (is_helper_command_line(&lower) || lower.contains("crashpad_handler"))
+        {
             continue;
         }
         entries.push((pid, None));

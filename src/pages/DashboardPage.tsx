@@ -12,6 +12,7 @@ import { useCodebuddyCnAccountStore } from '../stores/useCodebuddyCnAccountStore
 import { useQoderAccountStore } from '../stores/useQoderAccountStore';
 import { useTraeAccountStore } from '../stores/useTraeAccountStore';
 import { useWorkbuddyAccountStore } from '../stores/useWorkbuddyAccountStore';
+import { useZedAccountStore } from '../stores/useZedAccountStore';
 import {
   parseGroupEntryId,
   PlatformLayoutEntryId,
@@ -57,6 +58,7 @@ import {
   GeminiAccount,
   getGeminiTierQuotaSummary,
 } from '../types/gemini';
+import { ZedAccount, getZedUsage } from '../types/zed';
 import './DashboardPage.css';
 import { AnnouncementCenter } from '../components/AnnouncementCenter';
 import { RobotIcon } from '../components/icons/RobotIcon';
@@ -74,6 +76,7 @@ import { getPlatformLabel, renderPlatformIcon } from '../utils/platformMeta';
 import { ManualHelpIconButton } from '../components/ManualHelpIconButton';
 import { isPrivacyModeEnabledByDefault, maskSensitiveValue } from '../utils/privacy';
 import { DisplayGroup, getDisplayGroups } from '../services/groupService';
+import * as zedService from '../services/zedService';
 import {
   buildAntigravityAccountPresentation,
   buildCodebuddyAccountPresentation,
@@ -85,6 +88,7 @@ import {
   buildQoderAccountPresentation,
   buildTraeAccountPresentation,
   buildWorkbuddyAccountPresentation,
+  buildZedAccountPresentation,
   UnifiedAccountPresentation,
   buildWindsurfAccountPresentation,
 } from '../presentation/platformAccountPresentation';
@@ -105,6 +109,7 @@ const CODEBUDDY_CN_CURRENT_ACCOUNT_ID_KEY = 'agtools.codebuddycn.current_account
 const QODER_CURRENT_ACCOUNT_ID_KEY = 'agtools.qoder.current_account_id';
 const TRAE_CURRENT_ACCOUNT_ID_KEY = 'agtools.trae.current_account_id';
 const WORKBUDDY_CURRENT_ACCOUNT_ID_KEY = 'agtools.workbuddy.current_account_id';
+const ZED_CURRENT_ACCOUNT_ID_KEY = 'agtools.zed.current_account_id';
 const DASHBOARD_DEFERRED_PREFETCH_DELAY_MS = 1200;
 const DASHBOARD_DEFERRED_PREFETCH_BATCH_SIZE = 3;
 const DASHBOARD_DEFERRED_PREFETCH_BATCH_DELAY_MS = 250;
@@ -112,6 +117,47 @@ let dashboardStartupPrefetched = false;
 
 function toFiniteNumber(value: number | null | undefined): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function persistStoredCurrentAccountId(storageKey: string, accountId: string | null) {
+  try {
+    if (accountId) {
+      localStorage.setItem(storageKey, accountId);
+    } else {
+      localStorage.removeItem(storageKey);
+    }
+  } catch {
+    // ignore storage write failures
+  }
+}
+
+function getZedRecommendationScore(account: ZedAccount): { remainingPercent: number; freshness: number } {
+  const usage = getZedUsage(account);
+  const remainingValues: number[] = [];
+
+  if (
+    usage.remainingCompletions != null &&
+    usage.totalCompletions != null &&
+    usage.totalCompletions > 0
+  ) {
+    remainingValues.push((usage.remainingCompletions / usage.totalCompletions) * 100);
+  }
+
+  if (
+    usage.remainingChat != null &&
+    usage.totalChat != null &&
+    usage.totalChat > 0
+  ) {
+    remainingValues.push((usage.remainingChat / usage.totalChat) * 100);
+  }
+
+  return {
+    remainingPercent:
+      remainingValues.length > 0
+        ? remainingValues.reduce((sum, value) => sum + value, 0) / remainingValues.length
+        : -1,
+    freshness: account.last_used || account.created_at || 0,
+  };
 }
 
 export function DashboardPage({ onNavigate, onOpenPlatformLayout, onEasterEggTriggerClick }: DashboardPageProps) {
@@ -243,8 +289,32 @@ export function DashboardPage({ onNavigate, onOpenPlatformLayout, onEasterEggTri
     switchAccount: switchWorkbuddyAccount,
   } = useWorkbuddyAccountStore();
 
+  const {
+    accounts: zedAccounts,
+    fetchAccounts: fetchZedAccounts,
+    switchAccount: switchZedAccount,
+  } = useZedAccountStore();
+
   const agCurrentId = agCurrent?.id;
   const codexCurrentId = codexCurrent?.id;
+  const [zedCurrentId, setZedCurrentId] = React.useState<string | null>(() => {
+    try {
+      return localStorage.getItem(ZED_CURRENT_ACCOUNT_ID_KEY);
+    } catch {
+      return null;
+    }
+  });
+
+  const loadZedRuntimeStatus = React.useCallback(async () => {
+    try {
+      const status = await zedService.getZedRuntimeStatus();
+      const nextAccountId = status.currentAccountId ?? null;
+      setZedCurrentId(nextAccountId);
+      persistStoredCurrentAccountId(ZED_CURRENT_ACCOUNT_ID_KEY, nextAccountId);
+    } catch (error) {
+      console.error('Failed to load Zed runtime status:', error);
+    }
+  }, []);
 
   const agCurrentAccount = useMemo(() => {
     if (!agCurrentId) return null;
@@ -280,6 +350,8 @@ export function DashboardPage({ onNavigate, onOpenPlatformLayout, onEasterEggTri
     const deferredTasks: Array<() => Promise<unknown>> = [
       fetchCodexAccounts,
       fetchCodexCurrent,
+      fetchZedAccounts,
+      loadZedRuntimeStatus,
       fetchGitHubCopilotAccounts,
       fetchWindsurfAccounts,
       fetchKiroAccounts,
@@ -343,6 +415,7 @@ export function DashboardPage({ onNavigate, onOpenPlatformLayout, onEasterEggTri
       total:
         agAccounts.length +
         codexAccounts.length +
+        zedAccounts.length +
         githubCopilotAccounts.length +
         windsurfAccounts.length +
         kiroAccounts.length +
@@ -355,6 +428,7 @@ export function DashboardPage({ onNavigate, onOpenPlatformLayout, onEasterEggTri
         workbuddyAccounts.length,
       antigravity: agAccounts.length,
       codex: codexAccounts.length,
+      zed: zedAccounts.length,
       githubCopilot: githubCopilotAccounts.length,
       windsurf: windsurfAccounts.length,
       kiro: kiroAccounts.length,
@@ -366,7 +440,7 @@ export function DashboardPage({ onNavigate, onOpenPlatformLayout, onEasterEggTri
       trae: traeAccounts.length,
       workbuddy: workbuddyAccounts.length,
     };
-  }, [agAccounts, codexAccounts, githubCopilotAccounts, windsurfAccounts, kiroAccounts, cursorAccounts, geminiAccounts, codebuddyAccounts, codebuddyCnAccounts, qoderAccounts, traeAccounts, workbuddyAccounts]);
+  }, [agAccounts, codexAccounts, zedAccounts, githubCopilotAccounts, windsurfAccounts, kiroAccounts, cursorAccounts, geminiAccounts, codebuddyAccounts, codebuddyCnAccounts, qoderAccounts, traeAccounts, workbuddyAccounts]);
 
   // Refresh States
   const [refreshing, setRefreshing] = React.useState<Set<string>>(new Set());
@@ -444,6 +518,7 @@ export function DashboardPage({ onNavigate, onOpenPlatformLayout, onEasterEggTri
   const [cardRefreshing, setCardRefreshing] = React.useState<{
     ag: boolean;
     codex: boolean;
+    zed: boolean;
     githubCopilot: boolean;
     windsurf: boolean;
     kiro: boolean;
@@ -457,6 +532,7 @@ export function DashboardPage({ onNavigate, onOpenPlatformLayout, onEasterEggTri
   }>({
     ag: false,
     codex: false,
+    zed: false,
     githubCopilot: false,
     windsurf: false,
     kiro: false,
@@ -495,6 +571,23 @@ export function DashboardPage({ onNavigate, onOpenPlatformLayout, onEasterEggTri
       console.error('Refresh failed:', error);
     } finally {
       setRefreshing(prev => {
+        const next = new Set(prev);
+        next.delete(accountId);
+        return next;
+      });
+    }
+  };
+
+  const handleRefreshZed = async (accountId: string) => {
+    if (refreshing.has(accountId)) return;
+    setRefreshing((prev) => new Set(prev).add(accountId));
+    try {
+      await useZedAccountStore.getState().refreshToken(accountId);
+      await loadZedRuntimeStatus();
+    } catch (error) {
+      console.error('Refresh failed:', error);
+    } finally {
+      setRefreshing((prev) => {
         const next = new Set(prev);
         next.delete(accountId);
         return next;
@@ -612,6 +705,22 @@ export function DashboardPage({ onNavigate, onOpenPlatformLayout, onEasterEggTri
     }
   };
 
+  const handleRefreshZedCard = async () => {
+    if (cardRefreshing.zed) return;
+    setCardRefreshing((prev) => ({ ...prev, zed: true }));
+    const idsToRefresh = [zedCurrentId, zedRecommended?.id].filter(Boolean) as string[];
+    try {
+      for (const id of idsToRefresh) {
+        await useZedAccountStore.getState().refreshToken(id);
+      }
+      await loadZedRuntimeStatus();
+    } catch (error) {
+      console.error('Card refresh failed:', error);
+    } finally {
+      setCardRefreshing((prev) => ({ ...prev, zed: false }));
+    }
+  };
+
   const handleRefreshGitHubCopilotCard = async () => {
     if (cardRefreshing.githubCopilot) return;
     setCardRefreshing(prev => ({ ...prev, githubCopilot: true }));
@@ -694,6 +803,25 @@ export function DashboardPage({ onNavigate, onOpenPlatformLayout, onEasterEggTri
       await switchGitHubCopilotAccount(accountId);
       setGitHubCopilotCurrentId(accountId);
       localStorage.setItem(GHCP_CURRENT_ACCOUNT_ID_KEY, accountId);
+    } catch (error) {
+      console.error('Switch failed:', error);
+    } finally {
+      setSwitching((prev) => {
+        const next = new Set(prev);
+        next.delete(accountId);
+        return next;
+      });
+    }
+  };
+
+  const handleSwitchZed = async (accountId: string) => {
+    if (switching.has(accountId)) return;
+    setSwitching((prev) => new Set(prev).add(accountId));
+    try {
+      await switchZedAccount(accountId);
+      setZedCurrentId(accountId);
+      persistStoredCurrentAccountId(ZED_CURRENT_ACCOUNT_ID_KEY, accountId);
+      await loadZedRuntimeStatus();
     } catch (error) {
       console.error('Switch failed:', error);
     } finally {
@@ -1239,6 +1367,19 @@ export function DashboardPage({ onNavigate, onOpenPlatformLayout, onEasterEggTri
     });
   }, [workbuddyAccounts, workbuddyCurrentId]);
 
+  const zedCurrent = useMemo(() => {
+    if (zedAccounts.length === 0) return null;
+    if (zedCurrentId) {
+      const current = zedAccounts.find((account) => account.id === zedCurrentId);
+      if (current) return current;
+    }
+    return zedAccounts.reduce((prev, curr) => {
+      const prevScore = prev.last_used || prev.created_at || 0;
+      const currScore = curr.last_used || curr.created_at || 0;
+      return currScore > prevScore ? curr : prev;
+    });
+  }, [zedAccounts, zedCurrentId]);
+
   React.useEffect(() => {
     if (!codebuddyCurrentId) return;
     const exists = codebuddyAccounts.some((account) => account.id === codebuddyCurrentId);
@@ -1278,6 +1419,14 @@ export function DashboardPage({ onNavigate, onOpenPlatformLayout, onEasterEggTri
     setWorkbuddyCurrentId(null);
     localStorage.removeItem(WORKBUDDY_CURRENT_ACCOUNT_ID_KEY);
   }, [workbuddyAccounts, workbuddyCurrentId]);
+
+  React.useEffect(() => {
+    if (!zedCurrentId) return;
+    const exists = zedAccounts.some((account) => account.id === zedCurrentId);
+    if (exists) return;
+    setZedCurrentId(null);
+    persistStoredCurrentAccountId(ZED_CURRENT_ACCOUNT_ID_KEY, null);
+  }, [zedAccounts, zedCurrentId]);
 
   const githubCopilotRecommended = useMemo(() => {
     if (githubCopilotAccounts.length <= 1) return null;
@@ -1605,6 +1754,24 @@ export function DashboardPage({ onNavigate, onOpenPlatformLayout, onEasterEggTri
     });
   }, [workbuddyAccounts, workbuddyCurrent?.id]);
 
+  const zedRecommended = useMemo(() => {
+    if (zedAccounts.length <= 1) return null;
+    const currentId = zedCurrent?.id;
+    const others = zedAccounts.filter((account) => account.id !== currentId);
+    if (others.length === 0) return null;
+
+    return others.reduce((best, candidate) => {
+      const bestScore = getZedRecommendationScore(best);
+      const candidateScore = getZedRecommendationScore(candidate);
+      if (candidateScore.remainingPercent !== bestScore.remainingPercent) {
+        return candidateScore.remainingPercent > bestScore.remainingPercent
+          ? candidate
+          : best;
+      }
+      return candidateScore.freshness > bestScore.freshness ? candidate : best;
+    });
+  }, [zedAccounts, zedCurrent?.id]);
+
   // Render Helpers
   const renderPresentationQuotaItems = (
     presentation: UnifiedAccountPresentation,
@@ -1789,6 +1956,19 @@ export function DashboardPage({ onNavigate, onOpenPlatformLayout, onEasterEggTri
     });
   };
 
+  const renderZedAccountContent = (account: ZedAccount | null) => {
+    if (!account) return <div className="empty-slot">{t('dashboard.noAccount', '无账号')}</div>;
+
+    const presentation = buildZedAccountPresentation(account, t);
+    return renderUnifiedAccountCard({
+      presentation,
+      onRefresh: () => handleRefreshZed(account.id),
+      onSwitch: () => handleSwitchZed(account.id),
+      isRefreshing: refreshing.has(account.id),
+      isSwitching: switching.has(account.id),
+    });
+  };
+
   const renderGitHubCopilotAccountContent = (account: GitHubCopilotAccount | null) => {
     if (!account) return <div className="empty-slot">{t('dashboard.noAccount', '无账号')}</div>;
 
@@ -1958,6 +2138,7 @@ export function DashboardPage({ onNavigate, onOpenPlatformLayout, onEasterEggTri
   const platformCounts: Record<PlatformId, number> = {
     antigravity: stats.antigravity,
     codex: stats.codex,
+    zed: stats.zed,
     'github-copilot': stats.githubCopilot,
     windsurf: stats.windsurf,
     kiro: stats.kiro,
@@ -2073,6 +2254,50 @@ export function DashboardPage({ onNavigate, onOpenPlatformLayout, onEasterEggTri
           </div>
 
           <button className="card-footer-action" onClick={() => onNavigate('codex')}>
+            {t('dashboard.viewAllAccounts', '查看所有账号')}
+          </button>
+        </div>
+      );
+    }
+
+    if (platformId === 'zed') {
+      return (
+        <div className="main-card codex-card" key={platformId}>
+          <div className="main-card-header">
+            <div className="header-title">
+              {renderPlatformIcon(platformId, 18)}
+              <h3>{getPlatformLabel(platformId, t)}</h3>
+            </div>
+            <button
+              className="header-action-btn"
+              onClick={handleRefreshZedCard}
+              disabled={cardRefreshing.zed}
+              title={t('common.refresh', '刷新')}
+            >
+              <RotateCw size={14} className={cardRefreshing.zed ? 'loading-spinner' : ''} />
+              <span>{t('common.refresh', '刷新')}</span>
+            </button>
+          </div>
+
+          <div className="split-content">
+            <div className="split-half current-half">
+              <span className="half-label"><CheckCircle2 size={12} /> {t('dashboard.current', '当前账户')}</span>
+              {renderZedAccountContent(zedCurrent)}
+            </div>
+
+            <div className="split-divider"></div>
+
+            <div className="split-half recommend-half">
+              <span className="half-label"><Sparkles size={12} /> {t('dashboard.recommended', '推荐账号')}</span>
+              {zedRecommended ? (
+                renderZedAccountContent(zedRecommended)
+              ) : (
+                <div className="empty-slot-text">{t('dashboard.noRecommendation', '暂无更好推荐')}</div>
+              )}
+            </div>
+          </div>
+
+          <button className="card-footer-action" onClick={() => onNavigate('zed')}>
             {t('dashboard.viewAllAccounts', '查看所有账号')}
           </button>
         </div>
@@ -2597,6 +2822,8 @@ export function DashboardPage({ onNavigate, onOpenPlatformLayout, onEasterEggTri
               ? 'success'
               : platformId === 'codex'
               ? 'info'
+              : platformId === 'zed'
+                ? 'info'
               : platformId === 'github-copilot'
               ? 'github'
               : platformId === 'kiro'

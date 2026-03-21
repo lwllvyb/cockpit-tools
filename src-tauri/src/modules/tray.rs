@@ -22,6 +22,7 @@ const TRAY_PLATFORM_MAX_VISIBLE: usize = 6;
 enum PlatformId {
     Antigravity,
     Codex,
+    Zed,
     GitHubCopilot,
     Windsurf,
     Kiro,
@@ -35,10 +36,11 @@ enum PlatformId {
 }
 
 impl PlatformId {
-    fn default_order() -> [Self; 12] {
+    fn default_order() -> [Self; 13] {
         [
             Self::Antigravity,
             Self::Codex,
+            Self::Zed,
             Self::GitHubCopilot,
             Self::Windsurf,
             Self::Kiro,
@@ -56,6 +58,7 @@ impl PlatformId {
         match value {
             crate::modules::tray_layout::PLATFORM_ANTIGRAVITY => Some(Self::Antigravity),
             crate::modules::tray_layout::PLATFORM_CODEX => Some(Self::Codex),
+            crate::modules::tray_layout::PLATFORM_ZED => Some(Self::Zed),
             crate::modules::tray_layout::PLATFORM_GITHUB_COPILOT => Some(Self::GitHubCopilot),
             crate::modules::tray_layout::PLATFORM_WINDSURF => Some(Self::Windsurf),
             crate::modules::tray_layout::PLATFORM_KIRO => Some(Self::Kiro),
@@ -74,6 +77,7 @@ impl PlatformId {
         match self {
             Self::Antigravity => crate::modules::tray_layout::PLATFORM_ANTIGRAVITY,
             Self::Codex => crate::modules::tray_layout::PLATFORM_CODEX,
+            Self::Zed => crate::modules::tray_layout::PLATFORM_ZED,
             Self::GitHubCopilot => crate::modules::tray_layout::PLATFORM_GITHUB_COPILOT,
             Self::Windsurf => crate::modules::tray_layout::PLATFORM_WINDSURF,
             Self::Kiro => crate::modules::tray_layout::PLATFORM_KIRO,
@@ -91,6 +95,7 @@ impl PlatformId {
         match self {
             Self::Antigravity => "Antigravity",
             Self::Codex => "Codex",
+            Self::Zed => "Zed",
             Self::GitHubCopilot => "GitHub Copilot",
             Self::Windsurf => "Windsurf",
             Self::Kiro => "Kiro",
@@ -108,6 +113,7 @@ impl PlatformId {
         match self {
             Self::Antigravity => "overview",
             Self::Codex => "codex",
+            Self::Zed => "zed",
             Self::GitHubCopilot => "github-copilot",
             Self::Windsurf => "windsurf",
             Self::Kiro => "kiro",
@@ -350,6 +356,16 @@ fn build_platform_group_submenu<R: Runtime>(
     platforms: &[PlatformId],
     lang: &str,
 ) -> Result<Submenu<R>, tauri::Error> {
+    if let [platform] = platforms {
+        return build_platform_details_submenu(
+            app,
+            &format!("group:{}:submenu", group_id),
+            group_name,
+            *platform,
+            lang,
+        );
+    }
+
     let mut submenus: Vec<Submenu<R>> = Vec::new();
     for platform in platforms {
         submenus.push(build_platform_submenu(app, *platform, lang)?);
@@ -488,6 +504,22 @@ fn build_platform_submenu<R: Runtime>(
     platform: PlatformId,
     lang: &str,
 ) -> Result<Submenu<R>, tauri::Error> {
+    build_platform_details_submenu(
+        app,
+        &format!("platform:{}:submenu", platform.as_str()),
+        platform.title(),
+        platform,
+        lang,
+    )
+}
+
+fn build_platform_details_submenu<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    submenu_id: &str,
+    title: &str,
+    platform: PlatformId,
+    lang: &str,
+) -> Result<Submenu<R>, tauri::Error> {
     let info = get_account_display_info(platform, lang);
     let mut items: Vec<MenuItem<R>> = Vec::new();
 
@@ -514,19 +546,14 @@ fn build_platform_submenu<R: Runtime>(
         .map(|item| item as &dyn IsMenuItem<R>)
         .collect();
 
-    Submenu::with_id_and_items(
-        app,
-        format!("platform:{}:submenu", platform.as_str()),
-        platform.title(),
-        true,
-        &refs,
-    )
+    Submenu::with_id_and_items(app, submenu_id, title, true, &refs)
 }
 
 fn get_account_display_info(platform: PlatformId, lang: &str) -> AccountDisplayInfo {
     match platform {
         PlatformId::Antigravity => build_antigravity_display_info(lang),
         PlatformId::Codex => build_codex_display_info(lang),
+        PlatformId::Zed => build_zed_display_info(lang),
         PlatformId::GitHubCopilot => build_github_copilot_display_info(lang),
         PlatformId::Windsurf => build_windsurf_display_info(lang),
         PlatformId::Kiro => build_kiro_display_info(lang),
@@ -1135,6 +1162,72 @@ fn build_codebuddy_cn_display_info(lang: &str) -> AccountDisplayInfo {
 fn build_workbuddy_display_info(lang: &str) -> AccountDisplayInfo {
     let accounts = crate::modules::workbuddy_account::list_accounts();
     build_workbuddy_family_display_info(lang, resolve_workbuddy_current_account(&accounts))
+}
+
+fn build_zed_display_info(lang: &str) -> AccountDisplayInfo {
+    let accounts = crate::modules::zed_account::list_accounts();
+    let current_id = crate::modules::zed_account::resolve_current_account_id();
+    let account = current_id
+        .as_deref()
+        .and_then(|id| accounts.iter().find(|item| item.id == id))
+        .cloned()
+        .or_else(|| {
+            accounts
+                .iter()
+                .max_by_key(|item| item.last_used.max(item.created_at))
+                .cloned()
+        });
+
+    let Some(account) = account else {
+        return AccountDisplayInfo {
+            account: format!("📧 {}", get_text("not_logged_in", lang)),
+            quota_lines: vec!["—".to_string()],
+        };
+    };
+
+    let display_value = first_non_empty(&[
+        account.display_name.as_deref(),
+        Some(account.github_login.as_str()),
+        Some(account.user_id.as_str()),
+        Some(account.id.as_str()),
+    ])
+    .unwrap_or("—");
+
+    let mut quota_lines = Vec::new();
+    if let Some(plan) = account
+        .plan_raw
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        quota_lines.push(format!("{}: {}", get_text("plan", lang), plan));
+    }
+
+    quota_lines.push(format!(
+        "{}: {} / {}",
+        get_text("token_spend", lang),
+        format_cents_currency(account.token_spend_used_cents),
+        format_cents_currency(account.token_spend_limit_cents),
+    ));
+    quota_lines.push(format!(
+        "{}: {} / {}",
+        get_text("edit_predictions", lang),
+        account
+            .edit_predictions_used
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "--".to_string()),
+        account
+            .edit_predictions_limit_raw
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("--"),
+    ));
+
+    AccountDisplayInfo {
+        account: format!("📧 {}", display_value),
+        quota_lines,
+    }
 }
 
 fn build_codebuddy_family_display_info(
@@ -2250,10 +2343,7 @@ fn build_copilot_quota_lines(lang: &str, usage: CopilotUsage) -> Vec<String> {
     lines
 }
 
-fn build_windsurf_quota_usage_lines(
-    lang: &str,
-    summary: WindsurfQuotaUsageSummary,
-) -> Vec<String> {
+fn build_windsurf_quota_usage_lines(lang: &str, summary: WindsurfQuotaUsageSummary) -> Vec<String> {
     let mut lines = Vec::new();
     let daily_reset_text = format_reset_time_from_ts(lang, summary.daily_reset_ts);
     let weekly_reset_text = format_reset_time_from_ts(lang, summary.weekly_reset_ts);
@@ -2288,10 +2378,7 @@ fn build_windsurf_quota_usage_lines(
     lines
 }
 
-fn build_windsurf_credit_usage_lines(
-    lang: &str,
-    summary: WindsurfCreditsSummary,
-) -> Vec<String> {
+fn build_windsurf_credit_usage_lines(lang: &str, summary: WindsurfCreditsSummary) -> Vec<String> {
     let mut lines = Vec::new();
     let reset_text = format_reset_time_from_ts(lang, summary.plan_end_ts);
 
@@ -2306,7 +2393,11 @@ fn build_windsurf_credit_usage_lines(
     ));
     let prompt_value = match (summary.prompt_left, summary.prompt_total) {
         (Some(left), Some(total)) if total > 0.0 => {
-            format!("{}/{}", format_quota_number(left), format_quota_number(total))
+            format!(
+                "{}/{}",
+                format_quota_number(left),
+                format_quota_number(total)
+            )
         }
         (Some(left), _) => format_quota_number(left),
         _ => "-".to_string(),
@@ -2332,7 +2423,11 @@ fn build_windsurf_credit_usage_lines(
 }
 
 fn format_quota_number(value: f64) -> String {
-    let normalized = if value.is_finite() { value.max(0.0) } else { 0.0 };
+    let normalized = if value.is_finite() {
+        value.max(0.0)
+    } else {
+        0.0
+    };
     if (normalized.fract()).abs() < f64::EPSILON {
         format!("{:.0}", normalized)
     } else {
@@ -2341,8 +2436,18 @@ fn format_quota_number(value: f64) -> String {
 }
 
 fn format_micros_usd(value: f64) -> String {
-    let normalized = if value.is_finite() { value.max(0.0) } else { 0.0 };
+    let normalized = if value.is_finite() {
+        value.max(0.0)
+    } else {
+        0.0
+    };
     format!("${:.2}", normalized / 1_000_000.0)
+}
+
+fn format_cents_currency(value: Option<i64>) -> String {
+    value
+        .map(|amount| format!("${:.2}", (amount as f64) / 100.0))
+        .unwrap_or_else(|| "--".to_string())
 }
 
 fn compute_copilot_usage(
@@ -2570,11 +2675,17 @@ fn resolve_windsurf_quota_usage_summary(
     let plan_status_roots = windsurf_plan_status_roots(account);
     let daily_remaining = first_number_from_roots(
         &plan_status_roots,
-        &[&["dailyQuotaRemainingPercent"], &["daily_quota_remaining_percent"]],
+        &[
+            &["dailyQuotaRemainingPercent"],
+            &["daily_quota_remaining_percent"],
+        ],
     );
     let weekly_remaining = first_number_from_roots(
         &plan_status_roots,
-        &[&["weeklyQuotaRemainingPercent"], &["weekly_quota_remaining_percent"]],
+        &[
+            &["weeklyQuotaRemainingPercent"],
+            &["weekly_quota_remaining_percent"],
+        ],
     );
 
     WindsurfQuotaUsageSummary {
@@ -2698,7 +2809,10 @@ fn windsurf_plan_status_roots<'a>(
         json_path(user_status, &["planStatus"]),
         json_path(snapshots, &["windsurfPlanStatus"]),
         json_path(snapshots, &["windsurfPlanStatus", "planStatus"]),
-        json_path(snapshots, &["windsurfUserStatus", "userStatus", "planStatus"]),
+        json_path(
+            snapshots,
+            &["windsurfUserStatus", "userStatus", "planStatus"],
+        ),
     ]
 }
 
@@ -2733,10 +2847,7 @@ fn first_string_from_roots<'a>(
     None
 }
 
-fn first_number_from_roots(
-    roots: &[Option<&serde_json::Value>],
-    paths: &[&[&str]],
-) -> Option<f64> {
+fn first_number_from_roots(roots: &[Option<&serde_json::Value>], paths: &[&[&str]]) -> Option<f64> {
     for root in roots.iter().flatten() {
         for path in paths {
             if let Some(value) = json_path(Some(*root), path).and_then(parse_json_number) {
@@ -3110,6 +3221,9 @@ fn get_text(key: &str, lang: &str) -> String {
         ("reset_unknown", "zh-cn") => "重置时间未知".to_string(),
         ("left", "zh-cn") => "剩余".to_string(),
         ("usage_status", "zh-cn") => "用量状态".to_string(),
+        ("plan", "zh-cn") => "订阅".to_string(),
+        ("token_spend", "zh-cn") => "Token 消耗".to_string(),
+        ("edit_predictions", "zh-cn") => "编辑预测".to_string(),
         ("status_normal_short", "zh-cn") => "正常".to_string(),
         ("included", "zh-cn") => "包含".to_string(),
         ("ghcp_inline", "zh-cn") => "Inline".to_string(),
@@ -3137,6 +3251,9 @@ fn get_text(key: &str, lang: &str) -> String {
         ("reset_unknown", "zh-tw") => "重置時間未知".to_string(),
         ("left", "zh-tw") => "剩餘".to_string(),
         ("usage_status", "zh-tw") => "用量狀態".to_string(),
+        ("plan", "zh-tw") => "訂閱".to_string(),
+        ("token_spend", "zh-tw") => "Token 消耗".to_string(),
+        ("edit_predictions", "zh-tw") => "編輯預測".to_string(),
         ("status_normal_short", "zh-tw") => "正常".to_string(),
         ("included", "zh-tw") => "已包含".to_string(),
         ("ghcp_inline", "zh-tw") => "Inline".to_string(),
@@ -3164,6 +3281,9 @@ fn get_text(key: &str, lang: &str) -> String {
         ("reset_unknown", "en") => "Reset time unknown".to_string(),
         ("left", "en") => "left".to_string(),
         ("usage_status", "en") => "Usage Status".to_string(),
+        ("plan", "en") => "Plan".to_string(),
+        ("token_spend", "en") => "Token Spend".to_string(),
+        ("edit_predictions", "en") => "Edit Predictions".to_string(),
         ("status_normal_short", "en") => "Normal".to_string(),
         ("included", "en") => "Included".to_string(),
         ("ghcp_inline", "en") => "Inline".to_string(),
@@ -3191,6 +3311,9 @@ fn get_text(key: &str, lang: &str) -> String {
         ("reset_unknown", "ja") => "リセット時間不明".to_string(),
         ("left", "ja") => "残り".to_string(),
         ("usage_status", "ja") => "利用状況".to_string(),
+        ("plan", "ja") => "プラン".to_string(),
+        ("token_spend", "ja") => "Token Spend".to_string(),
+        ("edit_predictions", "ja") => "Edit Predictions".to_string(),
         ("status_normal_short", "ja") => "正常".to_string(),
         ("included", "ja") => "含まれる".to_string(),
         ("ghcp_inline", "ja") => "Inline".to_string(),
@@ -3220,6 +3343,9 @@ fn get_text(key: &str, lang: &str) -> String {
         ("reset_unknown", "ru") => "Время сброса неизвестно".to_string(),
         ("left", "ru") => "осталось".to_string(),
         ("usage_status", "ru") => "Статус использования".to_string(),
+        ("plan", "ru") => "План".to_string(),
+        ("token_spend", "ru") => "Token Spend".to_string(),
+        ("edit_predictions", "ru") => "Edit Predictions".to_string(),
         ("status_normal_short", "ru") => "Норма".to_string(),
         ("included", "ru") => "Включено".to_string(),
         ("ghcp_inline", "ru") => "Inline".to_string(),
@@ -3247,6 +3373,9 @@ fn get_text(key: &str, lang: &str) -> String {
         ("reset_unknown", _) => "Reset time unknown".to_string(),
         ("left", _) => "left".to_string(),
         ("usage_status", _) => "Usage Status".to_string(),
+        ("plan", _) => "Plan".to_string(),
+        ("token_spend", _) => "Token Spend".to_string(),
+        ("edit_predictions", _) => "Edit Predictions".to_string(),
         ("status_normal_short", _) => "Normal".to_string(),
         ("included", _) => "Included".to_string(),
         ("ghcp_inline", _) => "Inline".to_string(),

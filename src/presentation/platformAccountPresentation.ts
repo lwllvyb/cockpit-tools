@@ -18,6 +18,7 @@ import type {
   WorkbuddyAccount,
   WorkbuddyOfficialQuotaResource,
 } from '../types/workbuddy';
+import type { ZedAccount } from '../types/zed';
 import {
   formatResetTimeDisplay,
   getAntigravityTierBadge,
@@ -103,6 +104,13 @@ import {
   getWorkbuddyPlanBadge,
   getWorkbuddyUsage,
 } from '../types/workbuddy';
+import {
+  getZedAccountDisplayEmail,
+  getZedEditPredictionsMetrics,
+  getZedEditPredictionsLabel,
+  getZedPlanBadge,
+  getZedUsage,
+} from '../types/zed';
 import type { DisplayGroup, GroupSettings } from '../services/groupService';
 import { calculateGroupQuota } from '../services/groupService';
 
@@ -1292,6 +1300,62 @@ export function buildGeminiAccountPresentation(
     planClass: getGeminiPlanBadgeClass(undefined, account),
     isBanned: false,
     quotaItems,
+  };
+}
+
+export function buildZedAccountPresentation(
+  account: ZedAccount,
+  t: Translate,
+): UnifiedAccountPresentation {
+  const planLabel = getZedPlanBadge(account);
+  const usage = getZedUsage(account);
+  const editUsedPercent =
+    usage.chatMessagesUsedPercent == null
+      ? null
+      : clampPercent(usage.chatMessagesUsedPercent);
+  const editRemainingPercent =
+    editUsedPercent == null ? null : clampPercent(100 - editUsedPercent);
+  const hasEditPredictions =
+    account.edit_predictions_used != null || Boolean(account.edit_predictions_limit_raw?.trim());
+  const editMetrics = hasEditPredictions ? getZedEditPredictionsMetrics(account) : null;
+  const quotaItems: UnifiedQuotaMetric[] = [];
+
+  if (editMetrics) {
+    quotaItems.push({
+      key: 'edit_predictions',
+      label: 'Edit Predictions',
+      percentage: editUsedPercent ?? 0,
+      progressPercent: editUsedPercent ?? 0,
+      quotaClass: getRemainingQuotaClass(editRemainingPercent),
+      valueText: getZedEditPredictionsLabel(account),
+      used: editMetrics.used,
+      total: editMetrics.total,
+      left: editMetrics.left,
+      showProgress: true,
+    });
+  }
+
+  if (account.has_overdue_invoices != null) {
+    quotaItems.push({
+      key: 'overdue_invoices',
+      label: t('zed.page.overdueField', '是否欠费'),
+      percentage: 0,
+      progressPercent: 0,
+      quotaClass: account.has_overdue_invoices ? 'low' : 'high',
+      valueText: account.has_overdue_invoices
+        ? t('zed.page.overdueYes', '是')
+        : t('zed.page.overdueNo', '否'),
+      showProgress: false,
+    });
+  }
+
+  return {
+    id: account.id,
+    displayName: getZedAccountDisplayEmail(account),
+    planLabel,
+    planClass: resolveSimplePlanClass(planLabel),
+    quotaItems,
+    sublineText: account.subscription_status?.trim() || undefined,
   };
 }
 
