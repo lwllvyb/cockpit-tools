@@ -159,6 +159,8 @@ pub struct GeneralConfig {
     pub codex_restart_specified_app_on_switch: bool,
     /// 是否在 Codex 总览中显示 API 服务入口
     pub codex_local_access_entry_visible: bool,
+    /// 是否显示顶部推广位
+    pub top_right_ad_visible: bool,
     /// Antigravity 切号是否启用“本地落盘 + 扩展无感”且不重启
     pub antigravity_dual_switch_no_restart_enabled: bool,
     /// 是否启用自动切号
@@ -1976,6 +1978,7 @@ pub fn save_network_config(
         codex_launch_on_switch: current.codex_launch_on_switch,
         codex_restart_specified_app_on_switch: current.codex_restart_specified_app_on_switch,
         codex_local_access_entry_visible: current.codex_local_access_entry_visible,
+        top_right_ad_visible: current.top_right_ad_visible,
         antigravity_dual_switch_no_restart_enabled: current
             .antigravity_dual_switch_no_restart_enabled,
         auto_switch_enabled: current.auto_switch_enabled,
@@ -2238,6 +2241,7 @@ pub fn get_general_config(app: tauri::AppHandle) -> Result<GeneralConfig, String
         codex_launch_on_switch: user_config.codex_launch_on_switch,
         codex_restart_specified_app_on_switch: user_config.codex_restart_specified_app_on_switch,
         codex_local_access_entry_visible: user_config.codex_local_access_entry_visible,
+        top_right_ad_visible: user_config.top_right_ad_visible,
         antigravity_dual_switch_no_restart_enabled: user_config
             .antigravity_dual_switch_no_restart_enabled,
         auto_switch_enabled: user_config.auto_switch_enabled,
@@ -2362,6 +2366,7 @@ pub fn save_general_config(
     codex_launch_on_switch: bool,
     codex_restart_specified_app_on_switch: Option<bool>,
     codex_local_access_entry_visible: Option<bool>,
+    top_right_ad_visible: Option<bool>,
     antigravity_dual_switch_no_restart_enabled: Option<bool>,
     auto_switch_enabled: Option<bool>,
     auto_switch_threshold: Option<i32>,
@@ -2583,6 +2588,7 @@ pub fn save_general_config(
             .unwrap_or(current.codex_restart_specified_app_on_switch),
         codex_local_access_entry_visible: codex_local_access_entry_visible
             .unwrap_or(current.codex_local_access_entry_visible),
+        top_right_ad_visible: top_right_ad_visible.unwrap_or(current.top_right_ad_visible),
         antigravity_dual_switch_no_restart_enabled: antigravity_dual_switch_no_restart_enabled
             .unwrap_or(current.antigravity_dual_switch_no_restart_enabled),
         auto_switch_enabled: auto_switch_enabled.unwrap_or(current.auto_switch_enabled),

@@ -271,6 +271,9 @@ pub struct UserConfig {
     /// 是否在 Codex 总览中显示 API 服务入口
     #[serde(default = "default_codex_local_access_entry_visible")]
     pub codex_local_access_entry_visible: bool,
+    /// 是否显示顶部推广位
+    #[serde(default = "default_top_right_ad_visible")]
+    pub top_right_ad_visible: bool,
     /// Antigravity 切号是否启用“本地落盘 + 扩展无感”且不重启
     #[serde(default = "default_antigravity_dual_switch_no_restart_enabled")]
     pub antigravity_dual_switch_no_restart_enabled: bool,
@@ -694,6 +697,9 @@ fn default_codex_restart_specified_app_on_switch() -> bool {
 fn default_codex_local_access_entry_visible() -> bool {
     true
 }
+fn default_top_right_ad_visible() -> bool {
+    true
+}
 fn default_antigravity_dual_switch_no_restart_enabled() -> bool {
     false
 }
@@ -904,6 +910,7 @@ impl Default for UserConfig {
             codex_launch_on_switch: default_codex_launch_on_switch(),
             codex_restart_specified_app_on_switch: default_codex_restart_specified_app_on_switch(),
             codex_local_access_entry_visible: default_codex_local_access_entry_visible(),
+            top_right_ad_visible: default_top_right_ad_visible(),
             antigravity_dual_switch_no_restart_enabled:
                 default_antigravity_dual_switch_no_restart_enabled(),
             auto_switch_enabled: default_auto_switch_enabled(),
@@ -1312,6 +1319,13 @@ pub fn load_user_config() -> Result<UserConfig, String> {
             obj.insert(
                 "codex_local_access_entry_visible".to_string(),
                 json!(default_codex_local_access_entry_visible()),
+            );
+        }
+
+        if !obj.contains_key("top_right_ad_visible") {
+            obj.insert(
+                "top_right_ad_visible".to_string(),
+                json!(default_top_right_ad_visible()),
             );
         }
 
