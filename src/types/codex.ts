@@ -24,6 +24,9 @@ export interface CodexAccount {
   api_provider_mode?: CodexApiProviderMode;
   api_provider_id?: string;
   api_provider_name?: string;
+  api_model_catalog?: string[];
+  api_supports_vision?: boolean;
+  api_model_vision_support?: Record<string, boolean>;
   bound_oauth_account_id?: string | null;
   user_id?: string;
   plan_type?: string;

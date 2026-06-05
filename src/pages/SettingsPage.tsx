@@ -157,6 +157,7 @@ interface GeneralConfig {
   codex_launch_on_switch: boolean;
   codex_restart_specified_app_on_switch: boolean;
   codex_local_access_entry_visible: boolean;
+  top_right_ad_visible?: boolean;
   antigravity_dual_switch_no_restart_enabled: boolean;
   auto_switch_enabled: boolean;
   auto_switch_threshold: number;
@@ -440,6 +441,7 @@ export function SettingsPage() {
   const [codexLaunchOnSwitch, setCodexLaunchOnSwitch] = useState(true);
   const [codexRestartSpecifiedAppOnSwitch, setCodexRestartSpecifiedAppOnSwitch] = useState(false);
   const [codexLocalAccessEntryVisible, setCodexLocalAccessEntryVisible] = useState(true);
+  const [topRightAdVisible, setTopRightAdVisible] = useState(true);
   const [antigravityDualSwitchNoRestartEnabled, setAntigravityDualSwitchNoRestartEnabled] = useState(false);
   const [autoSwitchEnabled, setAutoSwitchEnabled] = useState(false);
   const [autoSwitchThreshold, setAutoSwitchThreshold] = useState('20');
@@ -838,6 +840,7 @@ export function SettingsPage() {
           codexLaunchOnSwitch,
           codexRestartSpecifiedAppOnSwitch,
           codexLocalAccessEntryVisible,
+          topRightAdVisible,
           antigravityDualSwitchNoRestartEnabled,
           autoSwitchEnabled,
           autoSwitchThreshold: Number.isNaN(parsedAutoSwitchThreshold) ? 20 : parsedAutoSwitchThreshold,
@@ -957,6 +960,7 @@ export function SettingsPage() {
     codexLaunchOnSwitch,
     codexRestartSpecifiedAppOnSwitch,
     codexLocalAccessEntryVisible,
+    topRightAdVisible,
     antigravityDualSwitchNoRestartEnabled,
     autoSwitchEnabled,
     autoSwitchThreshold,
@@ -1265,6 +1269,7 @@ export function SettingsPage() {
         config.codex_restart_specified_app_on_switch ?? false,
       );
       setCodexLocalAccessEntryVisible(config.codex_local_access_entry_visible ?? true);
+      setTopRightAdVisible(config.top_right_ad_visible ?? true);
       setAntigravityDualSwitchNoRestartEnabled(
         config.antigravity_dual_switch_no_restart_enabled ?? false
       );
@@ -2363,13 +2368,25 @@ export function SettingsPage() {
 
               <div className="settings-row">
                 <div className="row-label">
-                  <div className="row-title">{t('settings.general.fpDir')}</div>
-                  <div className="row-desc">{t('settings.general.fpDirDesc')}</div>
+                  <div className="row-title">
+                    {t('settings.general.topRightAdVisible', '显示顶部推广')}
+                  </div>
+                  <div className="row-desc">
+                    {t(
+                      'settings.general.topRightAdVisibleDesc',
+                      '关闭后隐藏应用顶部推广位。'
+                    )}
+                  </div>
                 </div>
                 <div className="row-control">
-                  <button className="btn btn-secondary" onClick={() => accountService.openDeviceFolder()}>
-                    <FolderOpen size={16} />{t('common.open')}
-                  </button>
+                  <label className="switch">
+                    <input
+                      type="checkbox"
+                      checked={topRightAdVisible}
+                      onChange={(e) => setTopRightAdVisible(e.target.checked)}
+                    />
+                    <span className="slider"></span>
+                  </label>
                 </div>
               </div>
             </div>
